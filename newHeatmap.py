@@ -40,7 +40,7 @@ def get_day_suffix(day):
 
 # Plotting
 for day in range(5):
-    fig, axes = plt.subplots(2, 4, figsize=(24, 26))  # Reduced heatmap size
+    fig, axes = plt.subplots(2, 4, figsize=(11, 8))  # Reduced heatmap size
     axes = axes.flatten()
 
     start_idx = day * 24
@@ -79,15 +79,15 @@ for day in range(5):
     fig.suptitle(
         f"Mumbai | {day_num}{suffix} May 2025 | {start_time_str} - {end_time_str}",
         fontsize=13,
-        y=0.98,
+        y=0.93,
         fontweight="bold",
     )
 
     # Layout adjustments
-    plt.subplots_adjust(wspace=0.5, hspace=0.4, bottom=0.18)
+    plt.subplots_adjust(wspace=0.5, hspace=0.1, bottom=0.18)
 
     # Colorbar
-    cbar_ax = fig.add_axes([0.25, 0.07, 0.5, 0.02])
+    cbar_ax = fig.add_axes([0.25, 0.12, 0.5, 0.02])
     cbar = fig.colorbar(im, cax=cbar_ax, orientation="horizontal")
     cbar.set_label("2m Temperature (°C)", fontsize=11)
     cbar.ax.tick_params(labelsize=9)
@@ -97,3 +97,4 @@ for day in range(5):
         dpi=300,
         bbox_inches="tight",
     )
+    # plt.show()
