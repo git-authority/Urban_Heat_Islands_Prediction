@@ -40,7 +40,7 @@ def get_day_suffix(day):
 
 # Plotting
 for day in range(5):
-    fig, axes = plt.subplots(2, 4, figsize=(11, 8))  # Reduced heatmap size
+    fig, axes = plt.subplots(2, 4, figsize=(14, 9))  # Reduced heatmap size
     axes = axes.flatten()
 
     start_idx = day * 24
@@ -54,7 +54,7 @@ for day in range(5):
 
         im = ax.imshow(
             t2m_celsius[idx],
-            cmap="jet",
+            cmap="binary",
             origin="lower",
             extent=[lons.min(), lons.max(), lats.min(), lats.max()],
         )
@@ -67,7 +67,7 @@ for day in range(5):
         title = f"{day_num}{suffix} May 2025, Time - {hour_12}"
 
         ax.set_title(
-            title, fontsize=11, pad=10, fontweight="bold"
+            title, fontsize=10, pad=10, fontweight="bold"
         )  # Added vertical padding
         ax.set_xlabel("Longitude   → ", fontsize=12, labelpad=10, fontweight="bold")
         ax.set_ylabel("Latitude   → ", fontsize=12, labelpad=10, fontweight="bold")
@@ -76,15 +76,17 @@ for day in range(5):
     # Main title (single line, minimal)
     day_num = time_values[start_idx].day
     suffix = get_day_suffix(day_num)
+    fig.subplots_adjust(top=0.9)  # Try values between 0.8 and 0.9
+
     fig.suptitle(
-        f"Mumbai | {day_num}{suffix} May 2025 | {start_time_str} - {end_time_str}",
+        f"\n\nMumbai | {day_num}{suffix} May 2025 | {start_time_str} - {end_time_str}",
         fontsize=13,
-        y=0.93,
+        y=0.98,
         fontweight="bold",
     )
 
     # Layout adjustments
-    plt.subplots_adjust(wspace=0.5, hspace=0.1, bottom=0.18)
+    plt.subplots_adjust(wspace=0.6, hspace=0.1, bottom=0.18)
 
     # Colorbar
     cbar_ax = fig.add_axes([0.25, 0.12, 0.5, 0.02])
