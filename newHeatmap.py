@@ -92,4 +92,8 @@ for day in range(5):
     cbar.set_label("2m Temperature (°C)", fontsize=11)
     cbar.ax.tick_params(labelsize=9)
 
-    plt.show()
+    plt.savefig(
+        f"{day_num}{suffix}_May_color_8plots_3hrinterval.png",
+        dpi=300,
+        bbox_inches="tight",
+    )
