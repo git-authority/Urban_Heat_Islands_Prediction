@@ -3,11 +3,7 @@ import webbrowser
 import xarray as xr
 import numpy as np
 
-# Load lat/lon from dataset
-nc_path = "t2m_2025_May_1-5/data_mumbai.nc"
-ds = xr.open_dataset(nc_path)
-
-# Extract min and max from dataset or use your given range
+# Use given range
 lat_min, lat_max = 18.6, 19.6
 lon_min, lon_max = 72.71, 73.71
 
@@ -62,6 +58,3 @@ for lat in latitudes:
 map_file = "map.html"
 m.save(map_file)
 webbrowser.open(map_file)
-
-# Close dataset
-ds.close()
