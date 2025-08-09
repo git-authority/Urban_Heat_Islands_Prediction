@@ -9,7 +9,7 @@ ds = xr.open_dataset(nc_path)
 
 # Extract min and max from dataset or use your given range
 lat_min, lat_max = 18.6, 19.6
-lon_min, lon_max = 72.715, 73.715
+lon_min, lon_max = 72.71, 73.71
 
 # Create 11x11 grid
 latitudes = np.linspace(
