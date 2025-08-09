@@ -9,6 +9,10 @@ plt.rcParams["font.family"] = "Times New Roman"
 # Path to folder containing datasets
 folder_path = "Dataset/2024"
 
+# Folder to save plots
+save_folder = "plots_may_1_to_5_color"
+os.makedirs(save_folder, exist_ok=True)
+
 
 # Function to get correct day suffix
 def get_day_suffix(day):
@@ -40,7 +44,7 @@ for file_name in sorted(os.listdir(folder_path)):
     time_calendar = getattr(times, "calendar", "standard")
     time_values = num2date(times[:], units=time_units, calendar=time_calendar)
 
-    # Flip latitude if needed (north at top)
+    # Flip latitude if needed
     if lats[0] > lats[-1]:
         lats = lats[::-1]
         t2m = t2m[:, ::-1, :]
@@ -48,6 +52,13 @@ for file_name in sorted(os.listdir(folder_path)):
     # Loop through days in this file
     total_days = len(time_values) // 24
     for day in range(total_days):
+        day_num = time_values[day * 24].day
+        month_num = time_values[day * 24].month
+
+        # Only process 1st May to 5th May
+        if month_num != 5 or not (1 <= day_num <= 5):
+            continue
+
         fig, axes = plt.subplots(2, 4, figsize=(14, 9))
         axes = axes.flatten()
 
@@ -71,9 +82,8 @@ for file_name in sorted(os.listdir(folder_path)):
 
             dt = time_values[idx]
             hour_12 = dt.strftime("%I%p").lstrip("0").upper()
-            day_num = dt.day
-            suffix = get_day_suffix(day_num)
-            title = f"{day_num}{suffix} {dt.strftime('%B %Y')}, Time - {hour_12}"
+            suffix = get_day_suffix(dt.day)
+            title = f"{dt.day}{suffix} {dt.strftime('%B %Y')}, Time - {hour_12}"
 
             ax.set_title(title, fontsize=10, pad=10, fontweight="bold")
             ax.set_xlabel("Longitude   → ", fontsize=12, labelpad=10, fontweight="bold")
@@ -81,7 +91,6 @@ for file_name in sorted(os.listdir(folder_path)):
             ax.tick_params(axis="both", labelsize=9)
 
         # Main title
-        day_num = time_values[start_idx].day
         suffix = get_day_suffix(day_num)
         month_name = time_values[start_idx].strftime("%B")
         year = time_values[start_idx].year
@@ -103,6 +112,11 @@ for file_name in sorted(os.listdir(folder_path)):
         cbar.set_label("2m Temperature (K)", fontsize=11)
         cbar.ax.tick_params(labelsize=9)
 
-        plt.show()
+        # Save plot
+        save_path = os.path.join(save_folder, f"mumbai_{year}_may_{day_num:02d}.png")
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
 
     ds.close()
+
+print(f"Plots saved in '{save_folder}'")
