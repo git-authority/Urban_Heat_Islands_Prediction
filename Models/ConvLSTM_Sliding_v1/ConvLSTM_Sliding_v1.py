@@ -1,4 +1,4 @@
-# improved_conv_lstm_sampled.py
+# improved_conv_lstm_sampled_with_ssim_on_plot.py
 import os
 import numpy as np
 from netCDF4 import Dataset
@@ -210,6 +210,43 @@ def pretty_cb(cb, fmt="%.2f"):
     cb.ax.yaxis.set_major_formatter(plt.FormatStrFormatter(fmt))
 
 
+def compute_mean_ssim(preds, actuals, sea_mask):
+    """
+    preds, actuals: numpy arrays with shape (N,1,H,W)
+    sea_mask: boolean array (H,W) True -> sea
+    Returns mean SSIM across samples computed on land-only by forcing sea pixels to actual values
+    (so they don't contribute to difference). If scikit-image not available returns None.
+    """
+    try:
+        from skimage.metrics import structural_similarity as ssim_fn
+    except Exception:
+        return None
+
+    if preds.size == 0 or actuals.size == 0:
+        return None
+
+    N = preds.shape[0]
+    ssim_vals = []
+    H, W = sea_mask.shape
+    for i in range(N):
+        a = actuals[i, 0].astype(np.float64).copy()
+        p = preds[i, 0].astype(np.float64).copy()
+        # Force sea pixels to actual values so SSIM measures land-only differences
+        p[sea_mask] = a[sea_mask]
+        dr = float(a.max() - a.min())
+        if dr == 0.0:
+            dr = 1e-6
+        try:
+            s = ssim_fn(a, p, data_range=dr)
+        except Exception:
+            s = np.nan
+        ssim_vals.append(s)
+    ssim_vals = np.array(ssim_vals, dtype=np.float64)
+    if np.all(np.isnan(ssim_vals)):
+        return None
+    return float(np.nanmean(ssim_vals))
+
+
 # ---------------- Prepare data ----------------
 print("Loading dataset...")
 print(f"Using device: {device}")
@@ -264,13 +301,11 @@ sea_mask_t = torch.from_numpy(sea_mask).to(device)  # HxW, True=sea
 land_mask_t = (~sea_mask_t).to(device).unsqueeze(0).unsqueeze(0)  # 1x1xHxW
 
 # ---------------- model (INCREASED CAPACITY) ----------------
-# increased hidden_dim and number of layers, larger kernel_size for wider receptive field
 model = SameSizeConvLSTM(
     in_channels=input_len, hidden_dim=128, num_layers=3, kernel_size=5
 ).to(device)
 opt = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
 sched = optim.lr_scheduler.ReduceLROnPlateau(opt, mode="min", factor=0.5, patience=6)
-# base criterion (we'll compute masked reduction manually)
 criterion_map = nn.SmoothL1Loss(reduction="none")
 
 # ---------------- training (with masked Smooth L1 on anomalies) ----------------
@@ -423,8 +458,16 @@ if preds.size:
             mse, mae, rmse
         )
     )
+
+    # compute SSIM averaged over validation samples (land-only via sea fill trick)
+    mean_ssim_val = compute_mean_ssim(preds, actuals, dataset.sea_mask)
+    if mean_ssim_val is None:
+        print("Model VAL SSIM (land-only): SSIM not computed (scikit-image missing or no preds).")
+    else:
+        print(f"Model VAL SSIM (land-only): SSIM={mean_ssim_val:.6f}")
 else:
     print("No validation predictions available.")
+    mean_ssim_val = None
 
 # ---------------- Persistence baseline on validation (last input frame) ----------------
 print("Computing persistence baseline on validation set...")
@@ -459,8 +502,16 @@ if pers_preds.size:
             pers_mse, pers_mae, pers_rmse
         )
     )
+
+    # SSIM for persistence baseline (land-only)
+    mean_ssim_pers = compute_mean_ssim(pers_preds, pers_actuals, dataset.sea_mask)
+    if mean_ssim_pers is None:
+        print("Persistence VAL SSIM (land-only): SSIM not computed (scikit-image missing or no preds).")
+    else:
+        print(f"Persistence VAL SSIM (land-only): SSIM={mean_ssim_pers:.6f}")
 else:
     print("No persistence predictions available.")
+    mean_ssim_pers = None
 
 # ---------------- Bias correction (linear) fitted on val predictions -> apply & report corrected metrics ----------------
 print("Fitting linear bias correction on val set (land-only)...")
@@ -502,8 +553,16 @@ if preds.size:
             mse_corr, mae_corr, rmse_corr
         )
     )
+
+    # SSIM for bias-corrected preds (land-only)
+    mean_ssim_corr = compute_mean_ssim(preds_corrected, actuals, dataset.sea_mask)
+    if mean_ssim_corr is None:
+        print("Bias-corrected VAL SSIM (land-only): SSIM not computed (scikit-image missing or no preds).")
+    else:
+        print(f"Bias-corrected VAL SSIM (land-only): SSIM={mean_ssim_corr:.6f}")
 else:
     slope, intercept = 1.0, 0.0
+    mean_ssim_corr = None
     print("No preds to fit bias correction.")
 
 # ---------------- Build the requested sample in the DOWNSAMPLED timeline ----------
@@ -603,8 +662,30 @@ print(
     f"Sample metrics (downsampled target idx {ds_target_idx}): AFTER BC  -> MSE={mse_sample_bc:.6f}, MAE={mae_sample_bc:.6f}, RMSE={rmse_sample_bc:.6f}"
 )
 
+# Compute SSIM for this sample (land-only via sea fill trick) if possible
+try:
+    from skimage.metrics import structural_similarity as ssim_fn
 
-# --------------- lat/lon and plotting ---------------
+    a = actual_sample.astype(np.float64).copy()
+    p = pred_sample.astype(np.float64).copy()
+    p[mask] = a[mask]
+    dr = float(a.max() - a.min())
+    if dr == 0:
+        dr = 1e-6
+    s_sample = float(ssim_fn(a, p, data_range=dr))
+    # corrected
+    pbc = pred_sample_bc.astype(np.float64).copy()
+    pbc[mask] = a[mask]
+    s_sample_bc = float(ssim_fn(a, pbc, data_range=dr))
+    print(f"Sample SSIM (land-only): BEFORE BC SSIM={s_sample:.6f}   AFTER BC SSIM={s_sample_bc:.6f}")
+except Exception:
+    s_sample = float("nan")
+    s_sample_bc = float("nan")
+    print(
+        "Sample SSIM not computed (scikit-image missing). Install scikit-image to enable SSIM computation."
+    )
+
+# ----------------- lat/lon and plotting ---------------
 def find_first_nc(folder):
     for fn in sorted(os.listdir(folder)):
         if fn.endswith(".nc"):
@@ -724,8 +805,9 @@ for ax, im in zip(axes, [im0, im1, im2]):
         cbar.set_label("2m Temperature (units)", fontsize=10)
         pretty_cb(cbar, fmt="%.2f")
 
+# include SSIM (sample) beside RMSE in the plotted metrics
 metrics_text = (
-    f"MSE: {mse_sample:.6f}   MAE: {mae_sample:.6f}   RMSE: {rmse_sample:.6f}"
+    f"MSE: {mse_sample:.6f}   MAE: {mae_sample:.6f}   RMSE: {rmse_sample:.6f}   SSIM: {s_sample:.6f}"
 )
 # reserve more space at the bottom for the metrics (increase bottom from 0.05 -> 0.15)
 plt.tight_layout(rect=[0, 0.15, 1, 0.94])
