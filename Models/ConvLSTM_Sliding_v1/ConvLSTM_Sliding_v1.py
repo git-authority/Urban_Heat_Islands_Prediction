@@ -1,4 +1,4 @@
-# improved_conv_lstm_sampled_with_ssim_on_plot.py
+# improved_conv_lstm_sampled_with_ssim_on_plot_error_cbar_min_zero_max.py
 import os
 import numpy as np
 from netCDF4 import Dataset
@@ -462,7 +462,9 @@ if preds.size:
     # compute SSIM averaged over validation samples (land-only via sea fill trick)
     mean_ssim_val = compute_mean_ssim(preds, actuals, dataset.sea_mask)
     if mean_ssim_val is None:
-        print("Model VAL SSIM (land-only): SSIM not computed (scikit-image missing or no preds).")
+        print(
+            "Model VAL SSIM (land-only): SSIM not computed (scikit-image missing or no preds)."
+        )
     else:
         print(f"Model VAL SSIM (land-only): SSIM={mean_ssim_val:.6f}")
 else:
@@ -506,7 +508,9 @@ if pers_preds.size:
     # SSIM for persistence baseline (land-only)
     mean_ssim_pers = compute_mean_ssim(pers_preds, pers_actuals, dataset.sea_mask)
     if mean_ssim_pers is None:
-        print("Persistence VAL SSIM (land-only): SSIM not computed (scikit-image missing or no preds).")
+        print(
+            "Persistence VAL SSIM (land-only): SSIM not computed (scikit-image missing or no preds)."
+        )
     else:
         print(f"Persistence VAL SSIM (land-only): SSIM={mean_ssim_pers:.6f}")
 else:
@@ -557,7 +561,9 @@ if preds.size:
     # SSIM for bias-corrected preds (land-only)
     mean_ssim_corr = compute_mean_ssim(preds_corrected, actuals, dataset.sea_mask)
     if mean_ssim_corr is None:
-        print("Bias-corrected VAL SSIM (land-only): SSIM not computed (scikit-image missing or no preds).")
+        print(
+            "Bias-corrected VAL SSIM (land-only): SSIM not computed (scikit-image missing or no preds)."
+        )
     else:
         print(f"Bias-corrected VAL SSIM (land-only): SSIM={mean_ssim_corr:.6f}")
 else:
@@ -677,13 +683,16 @@ try:
     pbc = pred_sample_bc.astype(np.float64).copy()
     pbc[mask] = a[mask]
     s_sample_bc = float(ssim_fn(a, pbc, data_range=dr))
-    print(f"Sample SSIM (land-only): BEFORE BC SSIM={s_sample:.6f}   AFTER BC SSIM={s_sample_bc:.6f}")
+    print(
+        f"Sample SSIM (land-only): BEFORE BC SSIM={s_sample:.6f}   AFTER BC SSIM={s_sample_bc:.6f}"
+    )
 except Exception:
     s_sample = float("nan")
     s_sample_bc = float("nan")
     print(
         "Sample SSIM not computed (scikit-image missing). Install scikit-image to enable SSIM computation."
     )
+
 
 # ----------------- lat/lon and plotting ---------------
 def find_first_nc(folder):
@@ -738,7 +747,26 @@ if combined.size == 0:
     raise RuntimeError("No valid land pixels to plot.")
 vmin = float(np.nanmin(combined))
 vmax = float(np.nanmax(combined))
-err_abs = float(np.nanmax(np.abs((actual_masked - pred_masked).filled(0.0))))
+
+# --- NEW: compute actual error vmin/vmax and ticks (min, zero if inside range, max) ---
+err_arr = (actual_masked - pred_masked).filled(np.nan)
+err_flat = err_arr[~np.isnan(err_arr)]
+if err_flat.size == 0:
+    # fallback to symmetric tiny range
+    err_vmin = -1e-6
+    err_vmax = 1e-6
+    ticks = [0.0]
+else:
+    err_vmin = float(np.min(err_flat))
+    err_vmax = float(np.max(err_flat))
+    # Build ticks: include min and max; include 0.0 only if it's strictly inside (vmin, vmax)
+    ticks = [err_vmin]
+    if err_vmin < 0.0 < err_vmax:
+        ticks.append(0.0)
+    if err_vmax != err_vmin:
+        ticks.append(err_vmax)
+    # ensure sorted unique
+    ticks = sorted(list(dict.fromkeys(ticks)))
 
 fig, axes = plt.subplots(1, 3, figsize=(16, 6))
 fig.suptitle(
@@ -783,8 +811,8 @@ im2 = axes[2].imshow(
     origin=origin,
     extent=extent,
     cmap=cmap_err,
-    vmin=-err_abs,
-    vmax=err_abs,
+    vmin=err_vmin,
+    vmax=err_vmax,
     interpolation="nearest",
 )
 axes[2].set_title("Error = Actual - Predicted", fontsize=14)
@@ -799,16 +827,17 @@ for ax, im in zip(axes, [im0, im1, im2]):
     cbar = fig.colorbar(im, cax=cax)
     cbar.ax.tick_params(labelsize=9)
     if im is im2:
+        # For the error colorbar: show only min, zero (if inside range), and max
         cbar.set_label("Error (units)", fontsize=10)
-        pretty_cb(cbar, fmt="%.3f")
+        # set ticks we computed above and format labels with 3 decimal places
+        cbar.set_ticks(ticks)
+        cbar.set_ticklabels([f"{t:.3f}" for t in ticks])
     else:
         cbar.set_label("2m Temperature (units)", fontsize=10)
         pretty_cb(cbar, fmt="%.2f")
 
 # include SSIM (sample) beside RMSE in the plotted metrics
-metrics_text = (
-    f"MSE: {mse_sample:.6f}   MAE: {mae_sample:.6f}   RMSE: {rmse_sample:.6f}   SSIM: {s_sample:.6f}"
-)
+metrics_text = f"MSE: {mse_sample:.6f}   MAE: {mae_sample:.6f}   RMSE: {rmse_sample:.6f}   SSIM: {s_sample:.6f}"
 # reserve more space at the bottom for the metrics (increase bottom from 0.05 -> 0.15)
 plt.tight_layout(rect=[0, 0.15, 1, 0.94])
 
