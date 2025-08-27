@@ -1,4 +1,3 @@
-
 import os
 import sys
 import numpy as np
@@ -152,7 +151,9 @@ class ConvLSTMCell(nn.Module):
         super().__init__()
         pad = kernel_size // 2
         self.hidden_dim = hidden_dim
-        self.conv = nn.Conv2d(input_dim + hidden_dim, 4 * hidden_dim, kernel_size, padding=pad)
+        self.conv = nn.Conv2d(
+            input_dim + hidden_dim, 4 * hidden_dim, kernel_size, padding=pad
+        )
         self.dropout_p = dropout_p
         # small GroupNorm for stability (group size 8 or cap)
         self.gn = nn.GroupNorm(num_groups=min(8, hidden_dim), num_channels=hidden_dim)
@@ -182,14 +183,20 @@ class ConvLSTMCell(nn.Module):
 
 
 class ResidualConvLSTM(nn.Module):
-    def __init__(self, in_channels, hidden_dim=128, num_layers=3, kernel_size=5, dropout_p=0.05):
+    def __init__(
+        self, in_channels, hidden_dim=128, num_layers=3, kernel_size=5, dropout_p=0.05
+    ):
         super().__init__()
         self.num_layers = num_layers
         self.hidden_dim = hidden_dim
         layers = []
         for i in range(num_layers):
             in_dim = 1 if i == 0 else hidden_dim
-            layers.append(ConvLSTMCell(in_dim, hidden_dim, kernel_size=kernel_size, dropout_p=dropout_p))
+            layers.append(
+                ConvLSTMCell(
+                    in_dim, hidden_dim, kernel_size=kernel_size, dropout_p=dropout_p
+                )
+            )
         self.layers = nn.ModuleList(layers)
         self.final = nn.Conv2d(hidden_dim, 1, kernel_size=1)
 
@@ -200,7 +207,7 @@ class ResidualConvLSTM(nn.Module):
         hiddens = [l.init_hidden(B, (H, W), device) for l in self.layers]
         last = None
         for t in range(C):
-            frame = x[:, t:t+1, :, :]  # B x 1 x H x W
+            frame = x[:, t : t + 1, :, :]  # B x 1 x H x W
             inp = frame
             for li, layer in enumerate(self.layers):
                 h, c = hiddens[li]
@@ -288,7 +295,12 @@ def fit_columnwise_bias(actuals, preds, sea_mask, smooth_sigma=1.2):
 
 # ---------------- Prepare data ----------------
 print("Loading dataset and preparing train/val split...")
-dataset = SlidingMaskDataset(folder_path, input_len=input_len, target_offset=target_offset, sample_step=SAMPLE_STEP)
+dataset = SlidingMaskDataset(
+    folder_path,
+    input_len=input_len,
+    target_offset=target_offset,
+    sample_step=SAMPLE_STEP,
+)
 n = len(dataset)
 indices = np.arange(n)
 np.random.seed(seed)
@@ -301,7 +313,9 @@ val_set = Subset(dataset, val_idx)
 train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=0)
 val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=0)
 
-print(f"Samples (downsampled by {SAMPLE_STEP}): total={n}, train={len(train_set)}, val={len(val_set)}")
+print(
+    f"Samples (downsampled by {SAMPLE_STEP}): total={n}, train={len(train_set)}, val={len(val_set)}"
+)
 sea_mask = dataset.sea_mask
 H, W = dataset.H, dataset.W
 
@@ -317,6 +331,7 @@ climatology = (clim_sum / max(1, count)).astype(np.float32)
 np.save(os.path.join(out_dir, "climatology.npy"), climatology)
 print("Saved climatology to:", os.path.join(out_dir, "climatology.npy"))
 
+
 # ---------------- normalization (anomaly mean/std) ----------------
 def compute_norm_from_anomalies(dataset, train_idx, climatology):
     s = 0.0
@@ -329,10 +344,10 @@ def compute_norm_from_anomalies(dataset, train_idx, climatology):
         yn = y.numpy().squeeze(0) - clim
         arr = np.concatenate([Xn.ravel(), yn.ravel()]).astype(np.float64)
         s += arr.sum()
-        ss += (arr ** 2).sum()
+        ss += (arr**2).sum()
         cnt += arr.size
     mean = s / cnt
-    var = ss / cnt - mean ** 2
+    var = ss / cnt - mean**2
     std = np.sqrt(max(var, 1e-12))
     return float(mean), float(std)
 
@@ -350,10 +365,17 @@ sea_mask_t = torch.from_numpy(sea_mask).to(device)
 land_mask_t = (~sea_mask_t).to(device).unsqueeze(0).unsqueeze(0)  # 1x1xHxW
 
 # ---------------- build model / optimizer ----------------
-model = ResidualConvLSTM(in_channels=input_len, hidden_dim=hidden_dim, num_layers=num_layers, kernel_size=kernel_size, dropout_p=dropout_p).to(device)
+model = ResidualConvLSTM(
+    in_channels=input_len,
+    hidden_dim=hidden_dim,
+    num_layers=num_layers,
+    kernel_size=kernel_size,
+    dropout_p=dropout_p,
+).to(device)
 opt = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
 sched = optim.lr_scheduler.ReduceLROnPlateau(opt, mode="min", factor=0.5, patience=6)
 criterion_map = nn.SmoothL1Loss(reduction="none")
+
 
 # Create helper for SSIM loss if available
 def ssim_loss_torch(pred, target, sea_mask_np):
@@ -370,8 +392,9 @@ def ssim_loss_torch(pred, target, sea_mask_np):
         if dr == 0.0:
             dr = 1e-6
         s = ssim_fn(a, p, data_range=dr)
-        loss_sum += (1.0 - s)
+        loss_sum += 1.0 - s
     return loss_sum / B
+
 
 # ---------------- Training loop ----------------
 train_losses = []
@@ -401,7 +424,9 @@ for epoch in range(1, epochs + 1):
         opt.zero_grad()
         out = model(X_anom)  # Bx1xHxW predicted anomalies (normalized)
         if out.shape != y_anom.shape:
-            out = F.interpolate(out, size=y_anom.shape[2:], mode="bilinear", align_corners=False)
+            out = F.interpolate(
+                out, size=y_anom.shape[2:], mode="bilinear", align_corners=False
+            )
 
         # compute masked SmoothL1 on anomalies (normalized space)
         map_loss = criterion_map(out, y_anom)  # Bx1xHxW
@@ -426,7 +451,9 @@ for epoch in range(1, epochs + 1):
             y_np = y_abs.detach().cpu().numpy()
             ssim_term = ssim_loss_torch(out_np, y_np, sea_mask)
             # weight SSIM term modestly
-            loss = loss + 0.15 * torch.tensor(ssim_term, device=device, dtype=loss.dtype)
+            loss = loss + 0.15 * torch.tensor(
+                ssim_term, device=device, dtype=loss.dtype
+            )
 
         if torch.isnan(loss):
             raise RuntimeError("NaN loss")
@@ -458,7 +485,9 @@ for epoch in range(1, epochs + 1):
 
             outv = model(Xv_anom)
             if outv.shape != yv_anom.shape:
-                outv = F.interpolate(outv, size=yv_anom.shape[2:], mode="bilinear", align_corners=False)
+                outv = F.interpolate(
+                    outv, size=yv_anom.shape[2:], mode="bilinear", align_corners=False
+                )
 
             map_loss = criterion_map(outv, yv_anom)
             mask = land_mask_t.expand(map_loss.shape[0], 1, H, W)
@@ -482,14 +511,22 @@ for epoch in range(1, epochs + 1):
     sched.step(val_loss)
 
     # compute validation metrics on land-only
-    preds_arr = np.concatenate(all_val_preds, axis=0) if len(all_val_preds) else np.empty((0, 1, H, W))
-    actuals_arr = np.concatenate(all_val_actuals, axis=0) if len(all_val_actuals) else np.empty((0, 1, H, W))
+    preds_arr = (
+        np.concatenate(all_val_preds, axis=0)
+        if len(all_val_preds)
+        else np.empty((0, 1, H, W))
+    )
+    actuals_arr = (
+        np.concatenate(all_val_actuals, axis=0)
+        if len(all_val_actuals)
+        else np.empty((0, 1, H, W))
+    )
     if preds_arr.size:
         mask_flat = (~dataset.sea_mask).ravel()
         preds_flat = preds_arr.reshape(preds_arr.shape[0], -1)
         actuals_flat = actuals_arr.reshape(actuals_arr.shape[0], -1)
         diffs = actuals_flat[:, mask_flat] - preds_flat[:, mask_flat]
-        mse = float(np.nanmean(diffs ** 2))
+        mse = float(np.nanmean(diffs**2))
         mae = float(np.nanmean(np.abs(diffs)))
         rmse = float(np.sqrt(mse))
         mean_ssim_val = compute_mean_ssim(preds_arr, actuals_arr, dataset.sea_mask)
@@ -498,7 +535,9 @@ for epoch in range(1, epochs + 1):
         mean_ssim_val = None
 
     if epoch % PRINT_EVERY == 0:
-        print(f"Epoch {epoch:03d} Train={train_loss:.6f} Val={val_loss:.6f} | VAL MSE={mse:.6f} MAE={mae:.6f} RMSE={rmse:.6f} SSIM={mean_ssim_val}")
+        print(
+            f"Epoch {epoch:03d} Train={train_loss:.6f} Val={val_loss:.6f} | VAL MSE={mse:.6f} MAE={mae:.6f} RMSE={rmse:.6f} SSIM={mean_ssim_val}"
+        )
 
     # Save best model by val RMSE
     if preds_arr.size and rmse < best_val_rmse:
@@ -537,25 +576,33 @@ with torch.no_grad():
 
         outv = model(Xv_anom)
         if outv.shape != yv.shape:
-            outv = F.interpolate(outv, size=yv.shape[2:], mode="bilinear", align_corners=False)
+            outv = F.interpolate(
+                outv, size=yv.shape[2:], mode="bilinear", align_corners=False
+            )
         if USE_NORMALIZATION:
             outv = outv * norm_std + norm_mean
         outv_abs = outv + clim_t
         all_preds.append(outv_abs.cpu().numpy())
         all_actuals.append(yv.cpu().numpy())
 
-preds = (np.concatenate(all_preds, axis=0) if len(all_preds) else np.empty((0, 1, H, W)))
-actuals = (np.concatenate(all_actuals, axis=0) if len(all_actuals) else np.empty((0, 1, H, W)))
+preds = np.concatenate(all_preds, axis=0) if len(all_preds) else np.empty((0, 1, H, W))
+actuals = (
+    np.concatenate(all_actuals, axis=0) if len(all_actuals) else np.empty((0, 1, H, W))
+)
 
 if preds.size:
     mask_flat = (~dataset.sea_mask).ravel()
     preds_flat = preds.reshape(preds.shape[0], -1)
     actuals_flat = actuals.reshape(actuals.shape[0], -1)
     diffs = actuals_flat[:, mask_flat] - preds_flat[:, mask_flat]
-    mse = float(np.nanmean(diffs ** 2))
+    mse = float(np.nanmean(diffs**2))
     mae = float(np.nanmean(np.abs(diffs)))
     rmse = float(np.sqrt(mse))
-    print("Model VAL METRICS (land-only): MSE={:.6f} MAE={:.6f} RMSE={:.6f}".format(mse, mae, rmse))
+    print(
+        "Model VAL METRICS (land-only): MSE={:.6f} MAE={:.6f} RMSE={:.6f}".format(
+            mse, mae, rmse
+        )
+    )
     mean_ssim_val = compute_mean_ssim(preds, actuals, dataset.sea_mask)
     if mean_ssim_val is not None:
         print(f"Model VAL SSIM (land-only): SSIM={mean_ssim_val:.6f}")
@@ -568,7 +615,9 @@ print("Fitting column-wise (longitude) bias correction...")
 if preds.size:
     P = preds[:, 0]  # (N,H,W)
     A = actuals[:, 0]
-    slope_map, intercept_map = fit_columnwise_bias(A, P, dataset.sea_mask, smooth_sigma=1.2)
+    slope_map, intercept_map = fit_columnwise_bias(
+        A, P, dataset.sea_mask, smooth_sigma=1.2
+    )
     np.save(os.path.join(out_dir, "bias_slope_map.npy"), slope_map)
     np.save(os.path.join(out_dir, "bias_intercept_map.npy"), intercept_map)
     print("Saved slope/intercept maps to:", out_dir)
@@ -578,10 +627,14 @@ if preds.size:
     pc_flat = preds_corr.reshape(preds_corr.shape[0], -1)[:, mask_flat]
     a_flat_mat = actuals_flat[:, mask_flat]
     dif_corr = a_flat_mat - pc_flat
-    mse_corr = float(np.nanmean(dif_corr ** 2))
+    mse_corr = float(np.nanmean(dif_corr**2))
     mae_corr = float(np.nanmean(np.abs(dif_corr)))
     rmse_corr = float(np.sqrt(mse_corr))
-    print("Bias-corrected VAL METRICS (land-only): MSE={:.6f} MAE={:.6f} RMSE={:.6f}".format(mse_corr, mae_corr, rmse_corr))
+    print(
+        "Bias-corrected VAL METRICS (land-only): MSE={:.6f} MAE={:.6f} RMSE={:.6f}".format(
+            mse_corr, mae_corr, rmse_corr
+        )
+    )
     mean_ssim_corr = compute_mean_ssim(preds_corr, actuals, dataset.sea_mask)
     if mean_ssim_corr is not None:
         print(f"Bias-corrected VAL SSIM (land-only): SSIM={mean_ssim_corr:.6f}")
@@ -599,14 +652,20 @@ ORIG_INPUT_INDICES = [0, 3, 6, 9, 12, 15, 18, 21]
 ORIG_TARGET_INDEX = 33
 ds_input_idxs = [i // SAMPLE_STEP for i in ORIG_INPUT_INDICES]
 ds_target_idx = ORIG_TARGET_INDEX // SAMPLE_STEP
-assert ds_input_idxs == list(range(input_len)), f"Expected contiguous downsampled inputs 0..{input_len-1}, got {ds_input_idxs}"
+assert ds_input_idxs == list(
+    range(input_len)
+), f"Expected contiguous downsampled inputs 0..{input_len-1}, got {ds_input_idxs}"
 
 frames_ds = dataset.frames  # downsampled frames list
 T_ds = len(frames_ds)
 if ds_target_idx < 0 or ds_target_idx >= T_ds:
-    raise IndexError(f"Downsampled target index {ds_target_idx} out of range (0..{T_ds-1})")
+    raise IndexError(
+        f"Downsampled target index {ds_target_idx} out of range (0..{T_ds-1})"
+    )
 
-input_arr = np.stack([frames_ds[i] for i in ds_input_idxs], axis=0).astype(np.float32)  # (C,H,W)
+input_arr = np.stack([frames_ds[i] for i in ds_input_idxs], axis=0).astype(
+    np.float32
+)  # (C,H,W)
 target_arr = frames_ds[ds_target_idx].astype(np.float32)
 
 # fill NaNs
@@ -624,7 +683,9 @@ tgt_filled = np.where(np.isnan(target_arr), fill_t, target_arr).astype(np.float3
 model.eval()
 with torch.no_grad():
     X_sample = torch.from_numpy(inp_filled).unsqueeze(0).float().to(device)  # 1xCxHxW
-    y_sample = torch.from_numpy(tgt_filled).unsqueeze(0).unsqueeze(0).float().to(device)  # 1x1xHxW
+    y_sample = (
+        torch.from_numpy(tgt_filled).unsqueeze(0).unsqueeze(0).float().to(device)
+    )  # 1x1xHxW
 
     X_sample_anom = X_sample - clim_t
     if USE_NORMALIZATION:
@@ -632,7 +693,9 @@ with torch.no_grad():
 
     out_sample = model(X_sample_anom)
     if out_sample.shape[2:] != tgt_filled.shape:
-        out_sample = F.interpolate(out_sample, size=tgt_filled.shape, mode="bilinear", align_corners=False)
+        out_sample = F.interpolate(
+            out_sample, size=tgt_filled.shape, mode="bilinear", align_corners=False
+        )
     if USE_NORMALIZATION:
         out_sample = out_sample * norm_std + norm_mean
     out_sample_abs = out_sample + clim_t
@@ -652,7 +715,7 @@ land_actual = actual_sample[~mask]
 land_pred_bc = pred_sample_bc[~mask]
 if land_actual.size:
     difc = land_actual - land_pred_bc
-    mse_sample_bc = float(np.nanmean(difc ** 2))
+    mse_sample_bc = float(np.nanmean(difc**2))
     mae_sample_bc = float(np.nanmean(np.abs(difc)))
     rmse_sample_bc = float(np.sqrt(mse_sample_bc))
 else:
@@ -673,7 +736,10 @@ if ssim_fn is not None:
 else:
     s_sample_bc = float("nan")
 
-print(f"Sample metrics (downsampled target idx {ds_target_idx}): AFTER BC  -> MSE={mse_sample_bc:.6f}, MAE={mae_sample_bc:.6f}, RMSE={rmse_sample_bc:.6f}, SSIM={s_sample_bc}")
+print(
+    f"Sample metrics (downsampled target idx {ds_target_idx}): AFTER BC  -> MSE={mse_sample_bc:.6f}, MAE={mae_sample_bc:.6f}, RMSE={rmse_sample_bc:.6f}, SSIM={s_sample_bc}"
+)
+
 
 # ----------------- lat/lon and plotting ---------------
 def find_first_nc(folder):
@@ -681,6 +747,7 @@ def find_first_nc(folder):
         if fn.endswith(".nc"):
             return os.path.join(folder, fn)
     raise FileNotFoundError
+
 
 nc0 = find_first_nc(folder_path)
 ds0 = Dataset(nc0)
@@ -719,33 +786,82 @@ except Exception:
     cmap_err = mpl.colors.ListedColormap(cmap_err(np.linspace(0, 1, cmap_err.N)))
 cmap_err.set_bad("white")
 
-combined = np.concatenate([actual_masked.filled(np.nan).ravel(), pred_masked.filled(np.nan).ravel()])
+combined = np.concatenate(
+    [actual_masked.filled(np.nan).ravel(), pred_masked.filled(np.nan).ravel()]
+)
 combined = combined[~np.isnan(combined)]
 if combined.size == 0:
     raise RuntimeError("No valid land pixels to plot.")
 vmin = float(np.nanmin(combined))
 vmax = float(np.nanmax(combined))
-err_abs = float(np.nanmax(np.abs((actual_masked - pred_masked).filled(0.0))))
+
+# --- NEW: compute error vmin/vmax from the (bias-corrected) error heatmap and build ticks [min, 0 (if inside), max]
+err_arr = error_masked.filled(np.nan)
+err_flat = err_arr[~np.isnan(err_arr)]
+if err_flat.size == 0:
+    # fallback tiny symmetric range centered at 0
+    err_vmin = -1e-6
+    err_vmax = 1e-6
+    ticks = [0.0]
+else:
+    err_vmin = float(np.min(err_flat))
+    err_vmax = float(np.max(err_flat))
+    ticks = [err_vmin]
+    if err_vmin < 0.0 < err_vmax:
+        ticks.append(0.0)
+    if err_vmax != err_vmin:
+        ticks.append(err_vmax)
+    # sorted unique
+    ticks = sorted(list(dict.fromkeys(ticks)))
 
 fig, axes = plt.subplots(1, 3, figsize=(16, 6))
-fig.suptitle("\n\nInput: 1st April, 2024 | 12am - 9pm       |       Output: 2nd April, 2024 | 9am\n\n", fontsize=14, fontweight="bold", y=0.96)
+fig.suptitle(
+    "\n\nInput: 1st April, 2024 | 12am - 9pm       |       Output: 2nd April, 2024 | 9am\n\n",
+    fontsize=14,
+    fontweight="bold",
+    y=0.96,
+)
 
-im0 = axes[0].imshow(actual_masked, origin=origin, extent=extent, cmap=cmap_temp, vmin=vmin, vmax=vmax, interpolation="nearest")
+im0 = axes[0].imshow(
+    actual_masked,
+    origin=origin,
+    extent=extent,
+    cmap=cmap_temp,
+    vmin=vmin,
+    vmax=vmax,
+    interpolation="nearest",
+)
 axes[0].set_title("Actual", fontsize=14)
 axes[0].set_ylabel("Latitude   →", fontsize=11, fontweight="bold")
 axes[0].set_xlabel("Longitude   →", fontsize=11, fontweight="bold")
 axes[0].set_xticks(xticks)
 axes[0].set_yticks(yticks)
 
-im1 = axes[1].imshow(pred_masked, origin=origin, extent=extent, cmap=cmap_temp, vmin=vmin, vmax=vmax, interpolation="nearest")
-axes[1].set_title("Predicted", fontsize=14)
+im1 = axes[1].imshow(
+    pred_masked,
+    origin=origin,
+    extent=extent,
+    cmap=cmap_temp,
+    vmin=vmin,
+    vmax=vmax,
+    interpolation="nearest",
+)
+axes[1].set_title("Predicted (bias-corrected)", fontsize=14)
 axes[1].set_ylabel("Latitude   →", fontsize=11, fontweight="bold")
 axes[1].set_xlabel("Longitude   →", fontsize=11, fontweight="bold")
 axes[1].set_xticks(xticks)
 axes[1].set_yticks(yticks)
 
-im2 = axes[2].imshow(error_masked, origin=origin, extent=extent, cmap=cmap_err, vmin=-err_abs, vmax=err_abs, interpolation="nearest")
-axes[2].set_title("Error = Actual - Predicted", fontsize=14)
+im2 = axes[2].imshow(
+    error_masked,
+    origin=origin,
+    extent=extent,
+    cmap=cmap_err,
+    vmin=err_vmin,
+    vmax=err_vmax,
+    interpolation="nearest",
+)
+axes[2].set_title("Error = Actual - Predicted (BC)", fontsize=14)
 axes[2].set_ylabel("Latitude   →", fontsize=11, fontweight="bold")
 axes[2].set_xlabel("Longitude   →", fontsize=11, fontweight="bold")
 axes[2].set_xticks(xticks)
@@ -757,8 +873,10 @@ for ax, im in zip(axes, [im0, im1, im2]):
     cbar = fig.colorbar(im, cax=cax)
     cbar.ax.tick_params(labelsize=9)
     if im is im2:
+        # show only min, zero (if inside), and max on the error colorbar
         cbar.set_label("Error (units)", fontsize=10)
-        pretty_cb(cbar, fmt="%.3f")
+        cbar.set_ticks(ticks)
+        cbar.set_ticklabels([f"{t:.3f}" for t in ticks])
     else:
         cbar.set_label("2m Temperature (units)", fontsize=10)
         pretty_cb(cbar, fmt="%.2f")
@@ -766,8 +884,18 @@ for ax, im in zip(axes, [im0, im1, im2]):
 metrics_text = f"MSE: {mse_sample_bc:.6f}   MAE: {mae_sample_bc:.6f}   RMSE: {rmse_sample_bc:.6f}   SSIM: {s_sample_bc:.6f}"
 plt.tight_layout(rect=[0, 0.15, 1, 0.94])
 
-fig.text(0.5, 0.02, metrics_text, fontsize=14, va="center", ha="center", fontname="Times New Roman",
-         bbox=dict(facecolor="white", alpha=0.85, edgecolor="black", boxstyle="round,pad=0.3"))
+fig.text(
+    0.5,
+    0.02,
+    metrics_text,
+    fontsize=14,
+    va="center",
+    ha="center",
+    fontname="Times New Roman",
+    bbox=dict(
+        facecolor="white", alpha=0.85, edgecolor="black", boxstyle="round,pad=0.3"
+    ),
+)
 
 save_path = os.path.join(out_dir, "Actual_Predicted_Error.png")
 plt.savefig(save_path, dpi=300, bbox_inches="tight")
