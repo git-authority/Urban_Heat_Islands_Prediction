@@ -1,4 +1,3 @@
-# improved_conv_lstm_sampled_with_ssim_on_plot_error_cbar_min_zero_max.py
 import os
 import numpy as np
 from netCDF4 import Dataset
