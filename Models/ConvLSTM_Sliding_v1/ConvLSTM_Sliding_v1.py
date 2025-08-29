@@ -210,12 +210,7 @@ def pretty_cb(cb, fmt="%.2f"):
 
 
 def compute_mean_ssim(preds, actuals, sea_mask):
-    """
-    preds, actuals: numpy arrays with shape (N,1,H,W)
-    sea_mask: boolean array (H,W) True -> sea
-    Returns mean SSIM across samples computed on land-only by forcing sea pixels to actual values
-    (so they don't contribute to difference). If scikit-image not available returns None.
-    """
+
     try:
         from skimage.metrics import structural_similarity as ssim_fn
     except Exception:
