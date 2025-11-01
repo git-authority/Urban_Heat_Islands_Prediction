@@ -25,7 +25,7 @@ except Exception:
 
 # ---------------- CONFIG ----------------
 folder_path = "../../Dataset/2024"  # folder containing .nc files with variable 't2m'
-out_dir = "ConvLSTM_v2_end_to_end"
+out_dir = "ConvLSTM_v2_old"
 os.makedirs(out_dir, exist_ok=True)
 
 # Temporal downsampling and mapping (matches your previous setup)
