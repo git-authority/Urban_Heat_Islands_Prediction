@@ -11,7 +11,7 @@ import matplotlib as mpl
 
 # -------------- CONFIG --------------
 folder_path = "../../Dataset/2024"
-out_dir = "ConvLSTM_v1_updated"
+out_dir = "ConvLSTM_Sliding_v1_updated"
 os.makedirs(out_dir, exist_ok=True)
 
 input_len = 8
