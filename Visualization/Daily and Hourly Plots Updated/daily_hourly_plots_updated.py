@@ -9,7 +9,7 @@ from datetime import datetime
 import matplotlib.dates as mdates
 
 # --------- CONFIG ----------
-DATA_ROOT = os.path.join("..", "Dataset")  # adjust if needed
+DATA_ROOT = os.path.join("..", "..", "Dataset")  # adjust if needed
 YEARS = ["2020", "2021", "2022", "2023", "2024"]
 MONTH_ORDER = [
     "January",
@@ -175,7 +175,18 @@ def parse_times_for_var(ds, time_name):
 
 
 # compute per-timestep spatial mean+std for a bounding box
-def compute_mean_std_per_timestep(files, lat_min, lat_max, lon_min, lon_max):
+# (optionally excluding an inner bounding box)
+def compute_mean_std_per_timestep(
+    files,
+    lat_min,
+    lat_max,
+    lon_min,
+    lon_max,
+    exclude_lat_min=None,
+    exclude_lat_max=None,
+    exclude_lon_min=None,
+    exclude_lon_max=None,
+):
     times = []
     means = []
     stds = []
@@ -196,8 +207,25 @@ def compute_mean_std_per_timestep(files, lat_min, lat_max, lon_min, lon_max):
             raise RuntimeError(f"Could not find time variable in {f}")
 
         lat2, lon2 = extract_lat_lon(ds, lat_name, lon_name)
+
+        # build mask (with optional exclusion) only once
         if mask is None:
-            mask = make_mask_from_bbox(lat2, lon2, lat_min, lat_max, lon_min, lon_max)
+            base_mask = make_mask_from_bbox(
+                lat2, lon2, lat_min, lat_max, lon_min, lon_max
+            )
+            if exclude_lat_min is not None:
+                exclude_mask = make_mask_from_bbox(
+                    lat2,
+                    lon2,
+                    exclude_lat_min,
+                    exclude_lat_max,
+                    exclude_lon_min,
+                    exclude_lon_max,
+                )
+                mask = base_mask & (~exclude_mask)
+            else:
+                mask = base_mask
+
             if not mask.any():
                 ds.close()
                 raise RuntimeError(f"No gridpoints found in bbox for file {f}")
@@ -213,9 +241,8 @@ def compute_mean_std_per_timestep(files, lat_min, lat_max, lon_min, lon_max):
             dt = dtimes[ti]
             if pd.isna(dt):
                 continue
-            month = dt.month
             hour = dt.hour
-            # Process all months (Jan-Dec) -> no month filtering here
+            # Process all months (Jan-Dec); only filter by hour
             if hour not in HOURS_KEEP:
                 continue
 
@@ -280,9 +307,19 @@ def make_and_save_separate_figures(data_root, years):
                 month_files.extend(found)
         use_files = month_files if month_files else files
 
+        # Rural = big box excluding inner urban box
         rural_df = compute_mean_std_per_timestep(
-            use_files, R_lat_min, R_lat_max, R_lon_min, R_lon_max
+            use_files,
+            R_lat_min,
+            R_lat_max,
+            R_lon_min,
+            R_lon_max,
+            exclude_lat_min=U_lat_min,
+            exclude_lat_max=U_lat_max,
+            exclude_lon_min=U_lon_min,
+            exclude_lon_max=U_lon_max,
         )
+        # Urban = inner box only
         urban_df = compute_mean_std_per_timestep(
             use_files, U_lat_min, U_lat_max, U_lon_min, U_lon_max
         )
@@ -307,13 +344,13 @@ def make_and_save_separate_figures(data_root, years):
         )
 
         ax_h.set_title(
-            f"{year} — Hourly t2m at 8 timepoints/day (Jan–Dec)",
+            f"{year} - Hourly t2m at 8 timepoints/day (Jan–Dec)",
             fontsize=12,
             weight="bold",
         )
         ax_h.set_ylabel("Temperature (K) →", fontsize=10)
         ax_h.set_xlabel(
-            "Months (Jan — Feb — Mar — Apr — May — Jun — Jul — Aug — Sep — Oct — Nov — Dec)",
+            "Months →",
             fontsize=10,
         )
         ax_h.xaxis.set_major_locator(month_locator)
@@ -394,7 +431,7 @@ def make_and_save_separate_figures(data_root, years):
         )
         ax_d.set_ylabel("Daily mean Temperature (K) →", fontsize=10)
         ax_d.set_xlabel(
-            "Months (Jan — Feb — Mar — Apr — May — Jun — Jul — Aug — Sep — Oct — Nov — Dec)",
+            "Months →",
             fontsize=10,
         )
         ax_d.xaxis.set_major_locator(month_locator)
