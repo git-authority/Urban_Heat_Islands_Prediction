@@ -21,7 +21,7 @@ except Exception:
     ssim_fn = None
 
 # ---------------- CONFIG ----------------
-folder_path = "../../Dataset"  # top-level folder with '2020','2021',... subfolders
+folder_path = "../../../Dataset"  # top-level folder with '2020','2021',... subfolders
 out_dir = "SwinLSTM_Sliding_v5"
 os.makedirs(out_dir, exist_ok=True)
 
