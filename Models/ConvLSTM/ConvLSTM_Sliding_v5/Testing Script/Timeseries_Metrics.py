@@ -21,10 +21,10 @@ except Exception:
 plt.rcParams["font.family"] = "Times New Roman"
 
 # ---------------- CONFIG ----------------
-folder_path = "../../../Dataset/2024"  # 2024 data with t2m
-out_dir = "./"  # model folder (ConvLSTM_Sliding_v5)
-model_path = os.path.join(out_dir, "best_model.pth")
-clim_path = os.path.join(out_dir, "climatology.npy")
+folder_path = "../../../../Dataset/2024"  # 2024 data with t2m
+out_dir = "../"  # model folder (ConvLSTM_Sliding_v5)
+model_path = os.path.join(out_dir, "Model/best_model.pth")
+clim_path = os.path.join(out_dir, "Normalization/climatology.npy")
 
 ts_out_dir = os.path.join(out_dir, "Timeseries_Metrics")
 os.makedirs(ts_out_dir, exist_ok=True)
@@ -404,7 +404,7 @@ plot_stem_timeseries(
     times,
     mae_list,
     "Figure 2: Time series of MAE for test data (2024) of ConvLSTM v5",
-    "MAE (normalized)",
+    "MAE",
     os.path.join(ts_out_dir, "Figure2_MAE_timeseries_2024.png"),
 )
 
@@ -412,7 +412,7 @@ plot_stem_timeseries(
     times,
     rmse_list,
     "Figure 3: Time series of RMSE for test data (2024) of ConvLSTM v5",
-    "RMSE (normalized)",
+    "RMSE",
     os.path.join(ts_out_dir, "Figure3_RMSE_timeseries_2024.png"),
 )
 
