@@ -12,7 +12,6 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-# Optional imports
 try:
     from skimage.metrics import structural_similarity as ssim_fn
 except Exception:
@@ -21,20 +20,20 @@ except Exception:
 plt.rcParams["font.family"] = "Times New Roman"
 
 # ---------------- CONFIG ----------------
-folder_path = "../Dataset/2024"  # 2024 data with t2m
-out_dir = "../ConvLSTM_Sliding_New"        # trained model folder
+folder_path = "../../../Dataset/2024"
+model_out_dir = "../Model"
+out_dir = "../Normalization"
 
-model_path = os.path.join(out_dir, "best_model.pth")
+model_path = os.path.join(model_out_dir, "best_model.pth")
 clim_path = os.path.join(out_dir, "climatology.npy")
 
 ts_out_dir = os.path.join(out_dir, "Timeseries_Metrics")
 os.makedirs(ts_out_dir, exist_ok=True)
 
-# must match training (ConvLSTM_Sliding_v5)
 input_len = 8
 target_offset = 4
 SAMPLE_STEP = 3
-val_split = 0.20  # only used for norm stats split
+val_split = 0.20
 seed = 42
 
 hidden_dim = 192
@@ -46,8 +45,7 @@ USE_NORMALIZATION = True
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"✅ Using device: {device}")
 
-
-# ---------------- Model definition (same as training) ----------------
+# ---------------- Model Definition ----------------
 class ConvLSTMCell(nn.Module):
     def __init__(self, input_dim, hidden_dim, kernel_size=5, dropout_p=0.05):
         super().__init__()
@@ -57,7 +55,7 @@ class ConvLSTMCell(nn.Module):
             input_dim + hidden_dim, 4 * hidden_dim, kernel_size, padding=pad
         )
         self.dropout_p = dropout_p
-        self.gn = nn.GroupNorm(num_groups=min(8, hidden_dim), num_channels=hidden_dim)
+        self.gn = nn.GroupNorm(min(8, hidden_dim), hidden_dim)
 
     def forward(self, x, hidden):
         h, c = hidden
@@ -84,27 +82,18 @@ class ConvLSTMCell(nn.Module):
 
 
 class ResidualConvLSTMWithRefine(nn.Module):
-    def __init__(
-        self, in_channels, hidden_dim=128, num_layers=3, kernel_size=5, dropout_p=0.05
-    ):
+    def __init__(self, in_channels, hidden_dim=128, num_layers=3, kernel_size=5, dropout_p=0.05):
         super().__init__()
-        self.num_layers = num_layers
-        self.hidden_dim = hidden_dim
-        layers = []
-        for i in range(num_layers):
-            in_dim = 1 if i == 0 else hidden_dim
-            layers.append(
-                ConvLSTMCell(
-                    in_dim, hidden_dim, kernel_size=kernel_size, dropout_p=dropout_p
-                )
-            )
-        self.layers = nn.ModuleList(layers)
+        self.layers = nn.ModuleList([
+            ConvLSTMCell(1 if i == 0 else hidden_dim, hidden_dim, kernel_size, dropout_p)
+            for i in range(num_layers)
+        ])
         self.refine = nn.Sequential(
-            nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, padding=1),
+            nn.Conv2d(hidden_dim, hidden_dim, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, padding=1),
+            nn.Conv2d(hidden_dim, hidden_dim, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(hidden_dim, 1, kernel_size=1),
+            nn.Conv2d(hidden_dim, 1, 1),
         )
 
     def forward(self, x):
@@ -112,7 +101,7 @@ class ResidualConvLSTMWithRefine(nn.Module):
         hiddens = [l.init_hidden(B, (H, W), x.device) for l in self.layers]
         last = None
         for t in range(C):
-            frame = x[:, t : t + 1, :, :]
+            frame = x[:, t:t+1]
             inp = frame
             for li, layer in enumerate(self.layers):
                 h, c = hiddens[li]
@@ -122,21 +111,16 @@ class ResidualConvLSTMWithRefine(nn.Module):
                 hiddens[li] = (hnext, cnext)
                 inp = hnext
             last = inp
-        out = self.refine(last)
-        return out
+        return self.refine(last)
 
-
-# ---------------- Dataset for evaluation (2024) ----------------
+# ---------------- Dataset ----------------
 class EvalDataset(torch.utils.data.Dataset):
     def __init__(self, folder_path, input_len, target_offset, sample_step):
         self.frames = []
         files = sorted([f for f in os.listdir(folder_path) if f.endswith(".nc")])
-        if not files:
-            raise RuntimeError(f"No .nc files in {folder_path}")
 
         for fn in files:
-            path = os.path.join(folder_path, fn)
-            ds = Dataset(path)
+            ds = Dataset(os.path.join(folder_path, fn))
             arr = np.array(ds["t2m"][:], dtype=np.float32)
             if arr.ndim == 3:
                 for t in range(arr.shape[0]):
@@ -154,15 +138,16 @@ class EvalDataset(torch.utils.data.Dataset):
         self.sea_mask = np.isnan(stack).all(axis=0)
         self.H, self.W = self.frames[0].shape
 
-        self.times = []
+        # ---- FIXED TIMESTAMP GENERATION ----
+        original_timestep_hours = 1  # raw data is hourly
         start_time = datetime(2024, 1, 1, 0, 0)
-        dt = timedelta(hours=3 * sample_step)
-        for i in range(len(self.frames)):
-            self.times.append(start_time + i * dt)
+        dt = timedelta(hours=original_timestep_hours * sample_step)
 
-        self.starts = []
-        for s in range(len(self.frames) - input_len - target_offset + 1):
-            self.starts.append(s)
+        self.times = [
+            start_time + i * dt for i in range(len(self.frames))
+        ]
+
+        self.starts = list(range(len(self.frames) - input_len - target_offset + 1))
 
     def __len__(self):
         return len(self.starts)
@@ -171,12 +156,12 @@ class EvalDataset(torch.utils.data.Dataset):
         s = self.starts[idx]
         e = s + self.input_len
 
-        inp = np.stack(self.frames[s:e], axis=0).astype(np.float32)
+        inp = np.stack(self.frames[s:e]).astype(np.float32)
         tgt = self.frames[e - 1 + self.target_offset].astype(np.float32)
 
         mask = self.sea_mask
 
-        inp_filled = np.empty_like(inp, dtype=np.float32)
+        inp_filled = np.empty_like(inp)
         for i in range(inp.shape[0]):
             frame = inp[i]
             fill = float(np.nanmean(frame[~mask]))
@@ -193,31 +178,9 @@ class EvalDataset(torch.utils.data.Dataset):
             tstamp,
         )
 
-
-# ---------------- Normalization helper ----------------
-def compute_norm_from_anomalies(dataset, train_idx, climatology):
-    s = 0.0
-    ss = 0.0
-    cnt = 0
-    clim = climatology.astype(np.float64)
-    for i in train_idx:
-        X, y, _ = dataset[i]
-        Xn = X.numpy() - clim[np.newaxis, :, :]
-        yn = y.numpy().squeeze(0) - clim
-        arr = np.concatenate([Xn.ravel(), yn.ravel()]).astype(np.float64)
-        s += arr.sum()
-        ss += (arr**2).sum()
-        cnt += arr.size
-    mean = s / cnt
-    var = ss / cnt - mean**2
-    std = np.sqrt(max(var, 1e-12))
-    return float(mean), float(std)
-
-
-# ---------------- Load dataset + climatology ----------------
+# ---------------- Load Dataset ----------------
 print("📦 Loading evaluation dataset (2024)...")
 dataset = EvalDataset(folder_path, input_len, target_offset, SAMPLE_STEP)
-
 sea_mask = dataset.sea_mask
 H, W = dataset.H, dataset.W
 
@@ -228,27 +191,35 @@ np.random.seed(seed)
 indices = np.arange(len(dataset))
 np.random.shuffle(indices)
 split = int(np.floor(val_split * len(dataset)))
-val_idx = indices[:split]
 train_idx = indices[split:]
+
+def compute_norm_from_anomalies(dataset, train_idx, climatology):
+    s = 0.0
+    ss = 0.0
+    cnt = 0
+    for i in train_idx:
+        X, y, _ = dataset[i]
+        Xn = X.numpy() - climatology[np.newaxis]
+        yn = y.numpy().squeeze(0) - climatology
+        arr = np.concatenate([Xn.ravel(), yn.ravel()])
+        s += arr.sum()
+        ss += (arr**2).sum()
+        cnt += arr.size
+    mean = s / cnt
+    std = np.sqrt(max(ss / cnt - mean**2, 1e-12))
+    return mean, std
 
 norm_mean, norm_std = compute_norm_from_anomalies(dataset, train_idx, climatology)
 
-
-# ---------------- Load model ----------------
+# ---------------- Load Model ----------------
 model = ResidualConvLSTMWithRefine(
-    in_channels=input_len,
-    hidden_dim=hidden_dim,
-    num_layers=num_layers,
-    kernel_size=kernel_size,
-    dropout_p=dropout_p,
+    input_len, hidden_dim, num_layers, kernel_size, dropout_p
 ).to(device)
 
-state = torch.load(model_path, map_location=device)
-model.load_state_dict(state, strict=False)
+model.load_state_dict(torch.load(model_path, map_location=device), strict=False)
 model.eval()
 
-
-# ---------------- Inference + metrics ----------------
+# ---------------- Inference ----------------
 times, ssim_list, mae_list, rmse_list = [], [], [], []
 
 with torch.no_grad():
@@ -257,11 +228,12 @@ with torch.no_grad():
         X = X.unsqueeze(0).to(device)
         y = y.unsqueeze(0).to(device)
 
-        X_anom = X - clim_t
-        X_anom = (X_anom - norm_mean) / norm_std
-
+        X_anom = (X - clim_t - norm_mean) / norm_std
         pred = model(X_anom)
-        pred = pred * norm_std + norm_mean
+
+        # ---- ENSURE DENORMALIZATION ----
+        if USE_NORMALIZATION:
+            pred = pred * norm_std + norm_mean
         pred = pred + clim_t
 
         p = pred[0, 0].cpu().numpy()
@@ -274,9 +246,7 @@ with torch.no_grad():
         if ssim_fn is not None:
             p2 = p.copy()
             p2[sea_mask] = a[sea_mask]
-            dr = float(a.max() - a.min())
-            if dr == 0:
-                dr = 1e-6
+            dr = float(a.max() - a.min()) or 1e-6
             ssim_val = ssim_fn(a, p2, data_range=dr)
         else:
             ssim_val = np.nan
@@ -286,43 +256,45 @@ with torch.no_grad():
         rmse_list.append(rmse)
         ssim_list.append(ssim_val)
 
-
 # ---------------- Plotting ----------------
 def plot_stem_timeseries(times, values, title, ylabel, save_path):
+    filtered = [(t, v) for t, v in zip(times, values) if t.year == 2024]
+    if filtered:
+        times, values = zip(*filtered)
+
     fig, ax = plt.subplots(figsize=(20, 6))
     ax.plot(times, values, "o", markersize=3)
     for t, v in zip(times, values):
         ax.vlines(t, 0, v, alpha=0.35)
+
     ax.set_title(title, fontsize=18)
     ax.set_ylabel(ylabel, fontsize=14)
     ax.set_xlabel("Time (2024)", fontsize=14)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    ax.set_xlim(datetime(2024, 1, 1), datetime(2024, 12, 31, 23, 59))
     plt.xticks(rotation=35)
     ax.grid(alpha=0.3)
+
     plt.tight_layout()
     plt.savefig(save_path, dpi=300)
     plt.close()
 
-
-plot_stem_timeseries(
-    times, ssim_list,
+plot_stem_timeseries(times, ssim_list,
     "Figure 1: Time series of SSIM (2024)",
     "SSIM",
     os.path.join(ts_out_dir, "Figure1_SSIM_timeseries_2024.png"),
 )
 
-plot_stem_timeseries(
-    times, mae_list,
+plot_stem_timeseries(times, mae_list,
     "Figure 2: Time series of MAE (2024)",
     "MAE",
     os.path.join(ts_out_dir, "Figure2_MAE_timeseries_2024.png"),
 )
 
-plot_stem_timeseries(
-    times, rmse_list,
+plot_stem_timeseries(times, rmse_list,
     "Figure 3: Time series of RMSE (2024)",
     "RMSE",
     os.path.join(ts_out_dir, "Figure3_RMSE_timeseries_2024.png"),
 )
 
-print("🎉 Done. SSIM / MAE / RMSE plots saved in:", ts_out_dir)
+print("🎉 Done. Fixed 2024-only SSIM / MAE / RMSE plots saved in:", ts_out_dir)
